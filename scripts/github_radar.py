@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import concurrent.futures
 import datetime as dt
 import html as html_lib
 import json
@@ -20,11 +22,13 @@ from typing import Any, Iterable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 GITHUB_API_VERSION = "2022-11-28"
 DEFAULT_STATE_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "github-radar"
 REPO_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-ALLOWED_REPO_ENDPOINT_RE = re.compile(r"^/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+ALLOWED_REPO_ENDPOINT_RE = re.compile(
+    r"^/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/readme)?$"
+)
 CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -348,6 +352,136 @@ def fetch_repo_metadata(full_name: str) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
     return normalize_repo(raw, "github_rest_repo")
+
+
+def readme_one_liner(document: str, limit: int = 160) -> str:
+    """Extract one descriptive sentence from untrusted README Markdown."""
+    text = document[:200_000]
+    text = re.sub(r"<!--.*?-->", " ", text, flags=re.DOTALL)
+    text = re.sub(r"```.*?```|~~~.*?~~~", " ", text, flags=re.DOTALL)
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html_lib.unescape(text)
+
+    candidates: list[str] = []
+    paragraph: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if paragraph:
+                candidates.append(" ".join(paragraph))
+                paragraph = []
+            continue
+        if line.startswith("#"):
+            if paragraph:
+                candidates.append(" ".join(paragraph))
+                paragraph = []
+            continue
+        if re.fullmatch(r"[-:| ]+", line):
+            continue
+        if "shields.io" in line or line.startswith(("> [!", "[![")):
+            continue
+        line = re.sub(r"^[-*+>]\s+", "", line)
+        line = re.sub(r"`([^`]+)`", r"\1", line)
+        line = re.sub(r"[*_~]{1,3}", "", line)
+        line = re.sub(r"https?://\S+", " ", line)
+        line = clean_text(line, 500)
+        if line:
+            paragraph.append(line)
+    if paragraph:
+        candidates.append(" ".join(paragraph))
+
+    skip_labels = {
+        "table of contents",
+        "contents",
+        "installation",
+        "getting started",
+        "quick start",
+        "documentation",
+        "features",
+        "about",
+    }
+    for candidate in candidates:
+        candidate = clean_text(candidate, 500).strip(" -*#>|:")
+        contains_cjk = re.search(r"[\u3400-\u9fff]", candidate) is not None
+        minimum_length = 10 if contains_cjk else 24
+        if len(candidate) < minimum_length or candidate.casefold() in skip_labels:
+            continue
+        language_nav = re.sub(r"[^a-z\u3400-\u9fff]+", " ", candidate.casefold()).strip()
+        if "english" in language_nav and any(
+            label in language_nav for label in ("中文", "chinese", "简体", "繁體")
+        ):
+            continue
+        if len(candidate) < 40 and re.search(r"[。！？.!?]$", candidate) is None:
+            continue
+        sentence_pattern = (
+            r"^(.{10,220}?[。！？!?])"
+            if contains_cjk
+            else r"^(.{24,220}?(?:[!?]|\.(?=\s+[A-Z0-9]|$)))"
+        )
+        sentence_match = re.search(sentence_pattern, candidate)
+        sentence = sentence_match.group(1) if sentence_match else candidate
+        sentence = clean_text(sentence, 220)
+        if len(sentence) <= limit:
+            return sentence
+        clipped = sentence[: limit + 1]
+        word_boundary = clipped.rfind(" ")
+        if word_boundary >= int(limit * 0.65):
+            clipped = clipped[:word_boundary]
+        else:
+            clipped = clipped[:limit]
+        return clipped.rstrip(" ,;:，；：") + "…"
+    return ""
+
+
+def fetch_readme_introduction(full_name: str) -> str:
+    """Read a ranked public repository's README through an allowlisted GET endpoint."""
+    validate_repo_name(full_name)
+    payload = gh_api_get(f"/repos/{full_name}/readme", timeout=20)
+    if not isinstance(payload, dict):
+        return ""
+    content = payload.get("content")
+    encoding = clean_text(payload.get("encoding"), 20).lower()
+    if not isinstance(content, str) or encoding != "base64":
+        return ""
+    try:
+        decoded = base64.b64decode(content, validate=False).decode("utf-8", errors="replace")
+    except (ValueError, TypeError):
+        return ""
+    return readme_one_liner(decoded)
+
+
+def add_readme_introductions(
+    new_items: list[dict[str, Any]], growth_items: list[dict[str, Any]], workers: int = 6
+) -> int:
+    """Add README one-liners to ranked items and return the fallback count."""
+    all_items = new_items + growth_items
+    names = list(dict.fromkeys(str(item["full_name"]) for item in all_items))
+    summaries: dict[str, str] = {}
+
+    def fetch(name: str) -> tuple[str, str]:
+        try:
+            return name, fetch_readme_introduction(name)
+        except RadarError:
+            return name, ""
+
+    if names:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(workers, len(names))) as pool:
+            for name, summary in pool.map(fetch, names):
+                summaries[name] = summary
+
+    fallback_count = 0
+    for item in all_items:
+        summary = summaries.get(str(item["full_name"]), "")
+        if summary:
+            item["introduction"] = summary
+            item["introduction_source"] = "github_readme"
+        else:
+            item["introduction"] = clean_text(item.get("description"), 160) or "暂无可用简介"
+            item["introduction_source"] = "repository_description"
+            fallback_count += 1
+    return fallback_count
 
 
 def fetch_repo_metadata_batch(names: Iterable[str], chunk_size: int = 50) -> dict[str, dict[str, Any]]:
@@ -766,7 +900,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     if new_items:
         lines.extend(
             [
-                "| # | 项目 | 简介 | 语言 | Star | 日均 Star | 创建时间 | 许可证 | 状态 |",
+                "| # | 项目 | 一句话介绍（优先 README） | 语言 | Star | 日均 Star | 创建时间 | 许可证 | 状态 |",
                 "|---:|---|---|---|---:|---:|---|---|---|",
             ]
         )
@@ -774,7 +908,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             status = "🆕 首次收录" if item["first_seen_today"] else "持续入榜"
             lines.append(
                 f"| {item['rank']} | [{md_escape(item['full_name'], 100)}]({item['url']}) | "
-                f"{md_escape(item['description'])} | {md_escape(item['language'], 40)} | "
+                f"{md_escape(item['introduction'], 170)} | {md_escape(item['language'], 40)} | "
                 f"{item['stars']:,} | {item['stars_per_day']:,.1f} | "
                 f"{md_escape(item['created_at'][:10], 20)} | {md_escape(item['license'], 30)} | {status} |"
             )
@@ -792,7 +926,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     if growth_items:
         lines.extend(
             [
-                "| # | 项目 | 简介 | 语言 | 当前 Star | 增量 | 增长率 | 口径 |",
+                "| # | 项目 | 一句话介绍（优先 README） | 语言 | 当前 Star | 增量 | 增长率 | 口径 |",
                 "|---:|---|---|---|---:|---:|---:|---|",
             ]
         )
@@ -801,7 +935,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             source = "本地快照实测" if item["growth_source"].startswith("snapshot_") else "Trending 当日回退"
             lines.append(
                 f"| {item['rank']} | [{md_escape(item['full_name'], 100)}]({item['url']}) | "
-                f"{md_escape(item['description'])} | {md_escape(item['language'], 40)} | "
+                f"{md_escape(item['introduction'], 170)} | {md_escape(item['language'], 40)} | "
                 f"{item['stars']:,} | +{item['star_delta']:,} | {rate} | {source} |"
             )
     else:
@@ -825,7 +959,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
             "## 数据来源",
             "",
-            "- GitHub REST API：公开仓库搜索与元数据（只读 GET）。",
+            "- GitHub REST API：公开仓库搜索、元数据与入榜项目 README（只读 GET）。",
             "- GitHub Trending：Daily/Weekly 候选发现；页面不可用时降级为 API 与本地快照。",
             f"- 本地历史：`{md_escape(report['data_sources'][-1]['path'], 240)}`（保留 90 天观测）。",
         ]
@@ -928,6 +1062,11 @@ def collect_report(args: argparse.Namespace, now: dt.datetime | None = None) -> 
 
         new_items = rank_new_items(new_candidates, args.limit)
         growth_items = rank_growth_items(growth_candidates, args.limit)
+        readme_fallbacks = add_readme_introductions(new_items, growth_items)
+        if readme_fallbacks:
+            warnings.append(
+                f"{readme_fallbacks} 个榜单条目没有可提取的 README 简介；已回退到 GitHub 仓库简介。"
+            )
         if not growth_items:
             warnings.append("尚无可用增长基线；已保存本次快照供后续比较。")
         elif all(item["growth_source"] == "github_trending_daily" for item in growth_items):

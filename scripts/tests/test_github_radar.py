@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import importlib.util
 import json
@@ -46,6 +47,10 @@ class GitHubRadarTests(unittest.TestCase):
     def test_read_only_endpoint_guard(self):
         self.assertEqual(radar.validate_api_endpoint("/search/repositories"), "/search/repositories")
         self.assertEqual(radar.validate_api_endpoint("/repos/example/alpha"), "/repos/example/alpha")
+        self.assertEqual(
+            radar.validate_api_endpoint("/repos/example/alpha/readme"),
+            "/repos/example/alpha/readme",
+        )
         for endpoint in (
             "/user/starred/example/alpha",
             "/repos/example/alpha/issues",
@@ -60,6 +65,61 @@ class GitHubRadarTests(unittest.TestCase):
         )
         with self.assertRaises(radar.RadarError):
             radar.gh_graphql_query("mutation { addStar(input: {}) { clientMutationId } }")
+
+    def test_readme_one_liner_skips_title_badges_and_code(self):
+        readme = """
+# Alpha
+
+[![Build](https://img.shields.io/badge/build-passing-green)](https://example.com)
+
+Alpha turns natural-language tasks into reproducible command-line workflows. It keeps every run auditable.
+
+```python
+print("not an introduction")
+```
+"""
+        self.assertEqual(
+            radar.readme_one_liner(readme),
+            "Alpha turns natural-language tasks into reproducible command-line workflows.",
+        )
+
+    def test_readme_one_liner_skips_language_switch_and_repeated_title(self):
+        readme = """
+# DeepSeek Harness
+
+English | 中文
+
+DeepSeek Harness Desktop（DSH Desktop）
+
+这是一个帮助开发者在桌面上管理 AI 编程任务的开源工具。
+"""
+        self.assertEqual(
+            radar.readme_one_liner(readme),
+            "这是一个帮助开发者在桌面上管理 AI 编程任务的开源工具。",
+        )
+
+    def test_fetch_readme_introduction_decodes_public_contents(self):
+        encoded = base64.b64encode("# Alpha\n\n面向开发者的轻量级任务编排工具。\n".encode()).decode()
+        with mock.patch.object(
+            radar,
+            "gh_api_get",
+            return_value={"encoding": "base64", "content": encoded},
+        ) as api_get:
+            summary = radar.fetch_readme_introduction("example/alpha")
+        self.assertEqual(summary, "面向开发者的轻量级任务编排工具。")
+        self.assertEqual(api_get.call_args.args[0], "/repos/example/alpha/readme")
+
+    def test_readme_enrichment_falls_back_to_repository_description(self):
+        items = [{"full_name": "example/alpha", "description": "Fallback description"}]
+        with mock.patch.object(
+            radar,
+            "fetch_readme_introduction",
+            side_effect=radar.RadarError("README unavailable"),
+        ):
+            fallback_count = radar.add_readme_introductions(items, [], workers=1)
+        self.assertEqual(fallback_count, 1)
+        self.assertEqual(items[0]["introduction"], "Fallback description")
+        self.assertEqual(items[0]["introduction_source"], "repository_description")
 
     def test_graphql_batch_normalizes_public_metadata(self):
         payload = {
@@ -170,7 +230,9 @@ class GitHubRadarTests(unittest.TestCase):
 
             with mock.patch.object(radar, "search_new_repositories", return_value=search_items), mock.patch.object(
                 radar, "fetch_trending", side_effect=[trending, radar.RadarError("weekly unavailable")]
-            ), mock.patch.object(radar, "fetch_repo_metadata", side_effect=fake_metadata):
+            ), mock.patch.object(radar, "fetch_repo_metadata", side_effect=fake_metadata), mock.patch.object(
+                radar, "add_readme_introductions", return_value=0
+            ):
                 report = radar.collect_report(args, now=self.now)
             self.assertEqual(
                 set(report),

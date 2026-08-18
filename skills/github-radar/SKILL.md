@@ -31,6 +31,7 @@ The default state directory is `~/.local/share/github-radar`. Do not replace it 
 - The new-project list covers public, non-fork, non-archived repositories created in the selected window.
 - The growth list is explicitly limited to candidates discovered through GitHub Trending, recent new-project searches, and locally tracked candidates. Never describe it as an exhaustive ranking of all GitHub repositories.
 - `snapshot_24h` and similar labels are locally measured changes. `github_trending_daily` is GitHub Trending's same-day fallback when no suitable local baseline exists.
+- Each ranked item includes a one-sentence introduction extracted from its public README. When no suitable README text is available, the collector labels and uses the GitHub repository description as a fallback.
 - Preserve warnings and data-quality notes in the response. Do not invent missing growth values.
 
 ## Safety boundary
