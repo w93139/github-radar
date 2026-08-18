@@ -1,0 +1,41 @@
+{
+  "total_count": 2,
+  "items": [
+    {
+      "full_name": "example/alpha",
+      "html_url": "https://github.com/example/alpha",
+      "description": "Alpha project",
+      "language": "Python",
+      "stargazers_count": 120,
+      "forks_count": 3,
+      "open_issues_count": 2,
+      "created_at": "2026-08-17T00:00:00Z",
+      "updated_at": "2026-08-19T00:00:00Z",
+      "pushed_at": "2026-08-19T00:00:00Z",
+      "license": {"spdx_id": "MIT"},
+      "topics": ["ai-agent"],
+      "private": false,
+      "fork": false,
+      "archived": false,
+      "visibility": "public"
+    },
+    {
+      "full_name": "example/beta",
+      "html_url": "https://github.com/example/beta",
+      "description": null,
+      "language": "Rust",
+      "stargazers_count": 80,
+      "forks_count": 1,
+      "open_issues_count": 0,
+      "created_at": "2026-08-18T00:00:00Z",
+      "updated_at": "2026-08-19T01:00:00Z",
+      "pushed_at": "2026-08-19T01:00:00Z",
+      "license": null,
+      "topics": [],
+      "private": false,
+      "fork": false,
+      "archived": false,
+      "visibility": "public"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+interface:
+  display_name: "GitHub Radar"
+  short_description: "每日发现 GitHub 新项目、热门项目与真实 Star 增长"
+  default_prompt: "使用 $github-radar 生成今天的 GitHub 新项目与增速榜单。"
+
+policy:
+  allow_implicit_invocation: true

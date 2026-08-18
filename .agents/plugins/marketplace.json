@@ -1,0 +1,20 @@
+{
+  "name": "github-radar",
+  "interface": {
+    "displayName": "GitHub Radar"
+  },
+  "plugins": [
+    {
+      "name": "github-radar",
+      "source": {
+        "source": "local",
+        "path": "."
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
