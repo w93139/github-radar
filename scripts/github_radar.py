@@ -20,7 +20,7 @@ from typing import Any, Iterable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 GITHUB_API_VERSION = "2022-11-28"
 DEFAULT_STATE_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "github-radar"
 REPO_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
