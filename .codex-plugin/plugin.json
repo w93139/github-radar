@@ -1,6 +1,6 @@
 {
   "name": "github-radar",
-  "version": "0.3.0+codex.20260818191718",
+  "version": "0.4.0+codex.20260819021059",
   "description": "Read-only daily rankings for new and fast-growing public GitHub repositories.",
   "author": {
     "name": "w93139",
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "GitHub Radar",
     "shortDescription": "\u50cf\u7d20\u96f7\u8fbe\u6bcf\u5929\u53d1\u73b0 GitHub \u65b0\u9879\u76ee\u4e0e\u589e\u957f\u9ed1\u9a6c\u3002",
-    "longDescription": "\u8ba9\u50cf\u7d20\u96f7\u8fbe\u673a\u5668\u4eba\u626b\u63cf\u516c\u5f00 GitHub \u4ed3\u5e93\uff0c\u751f\u6210\u65b0\u9879\u76ee\u699c\u4e0e\u5019\u9009\u8303\u56f4\u5185\u7684 Star \u589e\u901f\u699c\uff1b\u6bcf\u4e2a\u9879\u76ee\u4ece README \u63d0\u53d6\u4e00\u53e5\u7528\u9014\u4ecb\u7ecd\uff0c\u5e76\u4f7f\u7528\u672c\u5730\u5feb\u7167\u8ba1\u7b97\u771f\u5b9e\u589e\u957f\u3002",
+    "longDescription": "\u8ba9\u50cf\u7d20\u96f7\u8fbe\u673a\u5668\u4eba\u626b\u63cf\u516c\u5f00 GitHub \u4ed3\u5e93\uff0c\u751f\u6210\u5bbd\u7248\u65b0\u9879\u76ee\u699c\u4e0e\u5019\u9009\u8303\u56f4\u5185\u7684 Star \u589e\u901f\u699c\uff1b\u9879\u76ee\u4ecb\u7ecd\u4f18\u5148\u53d6\u81ea README\uff0c\u6ca1\u6709\u4e2d\u6587\u65f6\u7531 Codex \u9644\u4e0a\u4e2d\u6587\u7ffb\u8bd1\u3002",
     "developerName": "w93139",
     "category": "Productivity",
     "capabilities": [

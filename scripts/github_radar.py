@@ -22,7 +22,7 @@ from typing import Any, Iterable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 GITHUB_API_VERSION = "2022-11-28"
 DEFAULT_STATE_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "github-radar"
 REPO_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -354,7 +354,7 @@ def fetch_repo_metadata(full_name: str) -> dict[str, Any] | None:
     return normalize_repo(raw, "github_rest_repo")
 
 
-def readme_one_liner(document: str, limit: int = 160) -> str:
+def readme_one_liner(document: str, limit: int = 240) -> str:
     """Extract one descriptive sentence from untrusted README Markdown."""
     text = document[:200_000]
     text = re.sub(r"<!--.*?-->", " ", text, flags=re.DOTALL)
@@ -478,7 +478,7 @@ def add_readme_introductions(
             item["introduction"] = summary
             item["introduction_source"] = "github_readme"
         else:
-            item["introduction"] = clean_text(item.get("description"), 160) or "暂无可用简介"
+            item["introduction"] = clean_text(item.get("description"), 240) or "暂无可用简介"
             item["introduction_source"] = "repository_description"
             fallback_count += 1
     return fallback_count
@@ -900,17 +900,18 @@ def render_markdown(report: dict[str, Any]) -> str:
     if new_items:
         lines.extend(
             [
-                "| # | 项目 | 一句话介绍（优先 README） | 语言 | Star | 日均 Star | 创建时间 | 许可证 | 状态 |",
-                "|---:|---|---|---|---:|---:|---|---|---|",
+                "| # | 项目 | 一句话介绍（优先 README） | 项目信息 |",
+                "|---:|---|---|---|",
             ]
         )
         for item in new_items:
             status = "🆕 首次收录" if item["first_seen_today"] else "持续入榜"
             lines.append(
                 f"| {item['rank']} | [{md_escape(item['full_name'], 100)}]({item['url']}) | "
-                f"{md_escape(item['introduction'], 170)} | {md_escape(item['language'], 40)} | "
-                f"{item['stars']:,} | {item['stars_per_day']:,.1f} | "
-                f"{md_escape(item['created_at'][:10], 20)} | {md_escape(item['license'], 30)} | {status} |"
+                f"{md_escape(item['introduction'], 260)} | "
+                f"{md_escape(item['language'], 40)} · ⭐ {item['stars']:,}<br>"
+                f"日均 ⭐ {item['stars_per_day']:,.1f}<br>"
+                f"创建 {md_escape(item['created_at'][:10], 20)} · {md_escape(item['license'], 30)} · {status} |"
             )
     else:
         lines.append("本次没有取得符合条件的新项目。")
@@ -926,8 +927,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     if growth_items:
         lines.extend(
             [
-                "| # | 项目 | 一句话介绍（优先 README） | 语言 | 当前 Star | 增量 | 增长率 | 口径 |",
-                "|---:|---|---|---|---:|---:|---:|---|",
+                "| # | 项目 | 一句话介绍（优先 README） | 增长数据 |",
+                "|---:|---|---|---|",
             ]
         )
         for item in growth_items:
@@ -935,8 +936,9 @@ def render_markdown(report: dict[str, Any]) -> str:
             source = "本地快照实测" if item["growth_source"].startswith("snapshot_") else "Trending 当日回退"
             lines.append(
                 f"| {item['rank']} | [{md_escape(item['full_name'], 100)}]({item['url']}) | "
-                f"{md_escape(item['introduction'], 170)} | {md_escape(item['language'], 40)} | "
-                f"{item['stars']:,} | +{item['star_delta']:,} | {rate} | {source} |"
+                f"{md_escape(item['introduction'], 260)} | "
+                f"{md_escape(item['language'], 40)} · ⭐ {item['stars']:,}<br>"
+                f"+{item['star_delta']:,} · {rate}<br>{source} |"
             )
     else:
         lines.append("暂无可验证的增长数据；本次快照已建立，后续运行将用于计算增量。")

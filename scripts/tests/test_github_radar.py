@@ -121,6 +121,54 @@ DeepSeek Harness Desktop（DSH Desktop）
         self.assertEqual(items[0]["introduction"], "Fallback description")
         self.assertEqual(items[0]["introduction_source"], "repository_description")
 
+    def test_markdown_uses_wide_four_column_tables(self):
+        report = {
+            "generated_at": "2026-08-19T09:00:00+08:00",
+            "scope": {
+                "language_label": "全部公开项目",
+                "topic": None,
+                "new_window_days": 7,
+                "growth_hours": 24,
+                "limit": 1,
+            },
+            "new_projects": [
+                {
+                    "rank": 1,
+                    "full_name": "example/alpha",
+                    "url": "https://github.com/example/alpha",
+                    "introduction": "A deliberately longer project introduction for the wide column.",
+                    "language": "Python",
+                    "stars": 100,
+                    "stars_per_day": 20.0,
+                    "created_at": "2026-08-18T00:00:00Z",
+                    "license": "MIT",
+                    "first_seen_today": True,
+                }
+            ],
+            "fast_growth": [
+                {
+                    "rank": 1,
+                    "full_name": "example/alpha",
+                    "url": "https://github.com/example/alpha",
+                    "introduction": "A deliberately longer project introduction for the wide column.",
+                    "language": "Python",
+                    "stars": 100,
+                    "star_delta": 25,
+                    "growth_rate": 33.33,
+                    "growth_source": "snapshot_24h",
+                }
+            ],
+            "highlights": [],
+            "warnings": [],
+            "data_sources": [{"path": "/tmp/radar.sqlite3"}],
+        }
+        markdown = radar.render_markdown(report)
+        self.assertIn("| # | 项目 | 一句话介绍（优先 README） | 项目信息 |", markdown)
+        self.assertIn("| # | 项目 | 一句话介绍（优先 README） | 增长数据 |", markdown)
+        self.assertEqual(markdown.count("|---:|---|---|---|"), 2)
+        self.assertIn("<br>日均 ⭐ 20.0", markdown)
+        self.assertIn("+25 · 33.33%<br>本地快照实测", markdown)
+
     def test_graphql_batch_normalizes_public_metadata(self):
         payload = {
             "data": {
