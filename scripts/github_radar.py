@@ -11,6 +11,7 @@ import html as html_lib
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -34,6 +35,19 @@ CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 class RadarError(RuntimeError):
     """A safe, user-facing collector error."""
+
+
+def resolve_gh_executable() -> str:
+    candidates = [
+        shutil.which("gh"),
+        str(Path.home() / ".local" / "bin" / "gh"),
+        "/opt/homebrew/bin/gh",
+        "/usr/local/bin/gh",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    raise RadarError("未找到 gh 命令；GitHub Radar 需要已安装并登录的 GitHub CLI。")
 
 
 def utc_now() -> dt.datetime:
@@ -84,7 +98,7 @@ def gh_api_get(endpoint: str, params: dict[str, str] | None = None, timeout: int
     """Call only explicitly allowlisted GitHub GET endpoints through gh."""
     endpoint = validate_api_endpoint(endpoint)
     command = [
-        "gh",
+        resolve_gh_executable(),
         "api",
         "--method",
         "GET",
@@ -122,7 +136,7 @@ def gh_graphql_query(query: str, timeout: int = 30) -> Any:
     compact = re.sub(r"\s+", " ", query).strip()
     if not compact.startswith("query ") or re.search(r"\bmutation\b", compact, re.IGNORECASE):
         raise RadarError("拒绝非只读 GitHub GraphQL 操作。")
-    command = ["gh", "api", "graphql", "-f", f"query={query}"]
+    command = [resolve_gh_executable(), "api", "graphql", "-f", f"query={query}"]
     try:
         result = subprocess.run(
             command,
@@ -453,12 +467,21 @@ def fetch_readme_introduction(full_name: str) -> str:
 
 
 def add_readme_introductions(
-    new_items: list[dict[str, Any]], growth_items: list[dict[str, Any]], workers: int = 6
+    new_items: list[dict[str, Any]],
+    growth_items: list[dict[str, Any]],
+    workers: int = 10,
+    store: "RadarStore | None" = None,
+    fetch_missing: bool = True,
 ) -> int:
     """Add README one-liners to ranked items and return the fallback count."""
     all_items = new_items + growth_items
     names = list(dict.fromkeys(str(item["full_name"]) for item in all_items))
-    summaries: dict[str, str] = {}
+    revisions = {
+        str(item["full_name"]): str(item.get("pushed_at") or item.get("updated_at") or "")
+        for item in all_items
+    }
+    summaries = store.cached_introductions(revisions) if store is not None else {}
+    missing_names = [name for name in names if name not in summaries]
 
     def fetch(name: str) -> tuple[str, str]:
         try:
@@ -466,10 +489,16 @@ def add_readme_introductions(
         except RadarError:
             return name, ""
 
-    if names:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(workers, len(names))) as pool:
-            for name, summary in pool.map(fetch, names):
+    fresh: dict[str, str] = {}
+    if missing_names and fetch_missing:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(workers, len(missing_names))) as pool:
+            for name, summary in pool.map(fetch, missing_names):
                 summaries[name] = summary
+                if summary:
+                    fresh[name] = summary
+
+    if store is not None and fresh:
+        store.save_introduction_cache(fresh, revisions)
 
     fallback_count = 0
     for item in all_items:
@@ -601,24 +630,80 @@ class RadarStore:
                 status TEXT NOT NULL,
                 warning_count INTEGER NOT NULL
             );
-            INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', '1');
+            CREATE TABLE IF NOT EXISTS introductions (
+                full_name TEXT PRIMARY KEY,
+                introduction TEXT NOT NULL,
+                repository_revision TEXT NOT NULL,
+                fetched_at TEXT NOT NULL
+            );
+            INSERT INTO meta(key, value) VALUES ('schema_version', '2')
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value;
             """
         )
         self.connection.commit()
 
+    def cached_introductions(self, revisions: dict[str, str]) -> dict[str, str]:
+        names = sorted(revisions)
+        if not names:
+            return {}
+        placeholders = ",".join("?" for _ in names)
+        rows = self.connection.execute(
+            f"SELECT full_name, introduction, repository_revision FROM introductions WHERE full_name IN ({placeholders})",
+            names,
+        ).fetchall()
+        return {
+            str(row["full_name"]): str(row["introduction"])
+            for row in rows
+            if str(row["repository_revision"]) == revisions.get(str(row["full_name"]), "")
+        }
+
+    def save_introduction_cache(
+        self, summaries: dict[str, str], revisions: dict[str, str]
+    ) -> None:
+        fetched_at = iso_utc(utc_now())
+        with self.connection:
+            for full_name, introduction in summaries.items():
+                self.connection.execute(
+                    """
+                    INSERT INTO introductions(full_name, introduction, repository_revision, fetched_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(full_name) DO UPDATE SET
+                        introduction=excluded.introduction,
+                        repository_revision=excluded.repository_revision,
+                        fetched_at=excluded.fetched_at
+                    """,
+                    (full_name, introduction, revisions.get(full_name, ""), fetched_at),
+                )
+
     def close(self) -> None:
         self.connection.close()
 
-    def active_candidate_names(self, now: dt.datetime, limit: int = 60) -> list[str]:
+    def active_candidate_names(
+        self,
+        now: dt.datetime,
+        limit: int = 30,
+        language: str = "all",
+        topic: str | None = None,
+    ) -> list[str]:
         cutoff = iso_utc(now - dt.timedelta(days=2))
+        conditions = ["last_seen >= ?"]
+        parameters: list[Any] = [cutoff]
+        if language.casefold() != "all":
+            conditions.append("language = ? COLLATE NOCASE")
+            parameters.append(language)
+        if topic:
+            normalized_topic = topic.strip().lower().replace(" ", "-")
+            conditions.append("topics_json LIKE ?")
+            parameters.append(f'%"{normalized_topic}"%')
+        parameters.append(limit)
         rows = self.connection.execute(
-            """
+            f"""
             SELECT full_name FROM repositories
-            WHERE last_seen >= ?
+            WHERE {' AND '.join(conditions)}
             ORDER BY stars DESC, last_seen DESC
             LIMIT ?
             """,
-            (cutoff, limit),
+            parameters,
         ).fetchall()
         return [str(row["full_name"]) for row in rows]
 
@@ -768,6 +853,7 @@ def build_new_item(
         "topics": repo["topics"],
         "first_seen_today": first_seen_today,
         "updated_at": repo["updated_at"],
+        "pushed_at": repo["pushed_at"],
     }
 
 
@@ -985,19 +1071,39 @@ def collect_report(args: argparse.Namespace, now: dt.datetime | None = None) -> 
     weekly_available = False
     search_available = False
     try:
-        try:
-            for repo in search_new_repositories(since_date, args.language, args.topic):
+        def fetch_source(source: str) -> list[dict[str, Any]]:
+            if source == "search":
+                return search_new_repositories(
+                    since_date,
+                    args.language,
+                    args.topic,
+                    per_page=getattr(args, "candidate_limit", 100),
+                )
+            return fetch_trending(source)
+
+        source_results: dict[str, list[dict[str, Any]]] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {
+                source: pool.submit(fetch_source, source)
+                for source in ("search", "daily", "weekly")
+            }
+            for source in ("search", "daily", "weekly"):
+                try:
+                    source_results[source] = futures[source].result()
+                except RadarError as exc:
+                    warnings.append(safe_error(exc))
+
+        if "search" in source_results:
+            for repo in source_results["search"]:
                 repos_by_name[repo["full_name"]] = merge_repo(
                     repos_by_name.get(repo["full_name"]), repo
                 )
             search_available = True
-        except RadarError as exc:
-            warnings.append(safe_error(exc))
 
         trending_names: set[str] = set()
         for period in ("daily", "weekly"):
-            try:
-                trending_repos = fetch_trending(period)
+            if period in source_results:
+                trending_repos = source_results[period]
                 if period == "daily":
                     daily_available = True
                 else:
@@ -1007,10 +1113,13 @@ def collect_report(args: argparse.Namespace, now: dt.datetime | None = None) -> 
                     repos_by_name[repo["full_name"]] = merge_repo(
                         repos_by_name.get(repo["full_name"]), repo
                     )
-            except RadarError as exc:
-                warnings.append(safe_error(exc))
 
-        active_names = set(store.active_candidate_names(now))
+        readme_mode = getattr(args, "readme_mode", "full")
+        active_names = (
+            set(store.active_candidate_names(now, language=args.language, topic=args.topic))
+            if readme_mode == "full"
+            else set()
+        )
         metadata_names = sorted((trending_names | active_names) - set(repos_by_name))
         metadata_names.extend(
             sorted(
@@ -1064,8 +1173,13 @@ def collect_report(args: argparse.Namespace, now: dt.datetime | None = None) -> 
 
         new_items = rank_new_items(new_candidates, args.limit)
         growth_items = rank_growth_items(growth_candidates, args.limit)
-        readme_fallbacks = add_readme_introductions(new_items, growth_items)
-        if readme_fallbacks:
+        readme_fallbacks = add_readme_introductions(
+            new_items,
+            growth_items,
+            store=store,
+            fetch_missing=readme_mode == "full",
+        )
+        if readme_fallbacks and readme_mode == "full":
             warnings.append(
                 f"{readme_fallbacks} 个榜单条目没有可提取的 README 简介；已回退到 GitHub 仓库简介。"
             )
@@ -1133,6 +1247,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--growth-hours", type=int, default=24, help="增长比较窗口小时数")
     parser.add_argument("--timezone", default="Asia/Shanghai", help="报告时区")
     parser.add_argument("--format", choices=("markdown", "json"), default="markdown")
+    parser.add_argument(
+        "--readme-mode",
+        choices=("full", "cached"),
+        default="full",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--candidate-limit",
+        type=int,
+        default=100,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR), help="快照数据库目录")
     args = parser.parse_args(argv)
     if not 1 <= args.limit <= 50:

@@ -21,3 +21,18 @@ jobs:
         run: python -m unittest discover -s scripts/tests -v
       - name: Enforce read-only GitHub access
         run: python -m unittest scripts.tests.test_github_radar.GitHubRadarTests.test_read_only_endpoint_guard -v
+
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release packages
+        run: zsh scripts/package_macos_release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: github-radar-macos-${{ runner.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*SHA256SUMS.txt
+          if-no-files-found: error

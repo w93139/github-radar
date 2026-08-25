@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>GitHub Radar</title>
+  <link rel="icon" type="image/png" href="/assets/icon.png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <img src="/assets/logo.png" alt="" width="52" height="52">
+        <div><h1>GitHub Radar</h1><p>发现新项目，捕捉增长信号</p></div>
+      </div>
+      <div class="actions">
+        <span id="serviceState" class="service-state"><i></i><span>本地服务</span></span>
+        <span id="updatedAt" class="updated">尚未扫描</span>
+        <button id="refreshButton" class="primary" type="button"><span>↻</span> 刷新榜单</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="control-panel" aria-label="榜单筛选">
+        <div class="tabs" role="tablist">
+          <button class="tab active" role="tab" aria-selected="true" data-view="new">近 7 日新项目</button>
+          <button class="tab" role="tab" aria-selected="false" data-view="growth">24 小时增长</button>
+        </div>
+        <form id="filters" class="filters">
+          <label>语言<input id="language" name="language" placeholder="all / Rust" value="all"></label>
+          <label>主题<input id="topic" name="topic" placeholder="例如 ai-agent"></label>
+          <button type="submit" class="secondary">应用筛选</button>
+        </form>
+      </section>
+
+      <div id="searchStatus" class="search-status hidden" role="status"><span></span><p></p></div>
+
+      <section id="summary" class="summary" aria-label="数据概览"></section>
+      <section id="notice" class="notice hidden" role="status"></section>
+
+      <div class="content-grid">
+        <section class="ranking-panel">
+          <div class="section-heading">
+            <div><span class="eyebrow">DAILY SCAN</span><h2 id="listTitle">近 7 日新项目</h2></div>
+            <span id="scopeLabel" class="scope"></span>
+          </div>
+          <div id="loading" class="loading">
+            <span class="radar-loader"></span>
+            <strong>正在获取项目榜单</strong>
+            <small>榜单会先显示，README 简介随后补齐</small>
+          </div>
+          <ol id="projectList" class="project-list" aria-live="polite"></ol>
+        </section>
+
+        <aside>
+          <section class="side-card">
+            <span class="eyebrow">TODAY'S PICKS</span>
+            <h2>今日关注</h2>
+            <div id="highlights" class="highlights"></div>
+          </section>
+          <section class="side-card source-card">
+            <div class="source-title"><span class="pulse"></span><strong>只读扫描</strong></div>
+            <p>仅访问公开仓库。增长榜是候选范围内排名，不代表整个 GitHub。</p>
+            <div id="sources" class="sources"></div>
+          </section>
+        </aside>
+      </div>
+    </main>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

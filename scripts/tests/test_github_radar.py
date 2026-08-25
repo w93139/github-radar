@@ -121,6 +121,25 @@ DeepSeek Harness Desktop（DSH Desktop）
         self.assertEqual(items[0]["introduction"], "Fallback description")
         self.assertEqual(items[0]["introduction_source"], "repository_description")
 
+    def test_readme_introduction_cache_uses_repository_revision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = radar.RadarStore(Path(directory))
+            store.save_introduction_cache(
+                {"example/alpha": "Cached README introduction."},
+                {"example/alpha": "2026-08-25T00:00:00Z"},
+            )
+            items = [{
+                "full_name": "example/alpha",
+                "description": "Fallback",
+                "pushed_at": "2026-08-25T00:00:00Z",
+            }]
+            with mock.patch.object(radar, "fetch_readme_introduction") as fetch:
+                fallback_count = radar.add_readme_introductions(items, [], store=store)
+            store.close()
+        fetch.assert_not_called()
+        self.assertEqual(fallback_count, 0)
+        self.assertEqual(items[0]["introduction"], "Cached README introduction.")
+
     def test_markdown_uses_wide_four_column_tables(self):
         report = {
             "generated_at": "2026-08-19T09:00:00+08:00",

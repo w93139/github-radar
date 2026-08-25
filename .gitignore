@@ -4,3 +4,10 @@ __pycache__/
 .venv/
 radar.sqlite3*
 *.log
+dist/
+assets/concepts/icon-a.png
+assets/concepts/icon-b.png
+assets/concepts/icon-c.png
+assets/concepts/icon-d.png
+assets/concepts/icon-selected-dark.png
+assets/concepts/ui-dashboard-dark.png

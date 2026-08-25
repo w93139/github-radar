@@ -15,6 +15,14 @@
   <img src="https://img.shields.io/badge/GitHub-read--only-24292F" alt="GitHub read-only">
 </p>
 
+<p align="center">
+  <a href="https://github.com/w93139/github-radar/releases/latest"><strong>下载 macOS 应用</strong></a>
+  ·
+  <a href="#安装-codex-插件"><strong>安装 Codex 插件</strong></a>
+  ·
+  <a href="#命令行使用"><strong>命令行使用</strong></a>
+</p>
+
 ## 它会给你什么
 
 每天生成一份中文 Markdown 报告：
@@ -28,7 +36,7 @@
 
 增长榜明确是“候选范围内增速榜”，不会冒充覆盖整个 GitHub。首次运行没有本地基线时，会把 GitHub Trending 的 `stars today` 标记为回退口径；积累约 24 小时快照后，优先显示本地实测 Star 增量。
 
-## 插件呈现方式
+## 两种呈现方式
 
 安装后，GitHub Radar 会出现在 Codex 的插件列表中，带有独立图标、说明和快捷提示词。你可以直接说：
 
@@ -37,17 +45,58 @@
 - `使用 $github-radar 只看 AI Agent 项目`
 - `使用 $github-radar 查看近 7 日增长`
 
-报告显示在 Codex 任务中；定时任务可以每天自动运行并把报告发布到指定任务。
+报告可以显示在 Codex 任务中；定时任务每天自动运行并把报告发布到指定任务。仓库同时提供一个轻量的本地 Mini，用更适合浏览的卡片界面展示同一份数据。
 
 ### 已安装用户最快用法
 
 1. 在 Codex 中新建一个任务，让新任务加载最新插件。
 2. 输入：`使用 $github-radar 生成今天榜单`。
-3. 像素雷达机器人会在对话中返回两张宽版表格：新项目 Top 10 和候选范围内增速 Top 10；介绍列优先占据展示空间。
+3. 雷达卫星会在对话中返回两张宽版表格：新项目 Top 10 和候选范围内增速 Top 10；介绍列优先占据展示空间。
 
-它不是独立桌面 App，也不会打开单独的网页仪表盘；当前 UI 就是 Codex 插件卡片、快捷提示词和对话里的 Markdown 榜单。
+### 使用 macOS 桌面应用
 
-## 安装
+从 [Releases](https://github.com/w93139/github-radar/releases/latest) 下载与你芯片架构对应的 DMG，打开后将 `GitHub Radar.app` 拖入 `Applications`。
+
+当前公开安装包使用临时本地签名，尚未经过 Apple 公证。首次打开时请在 Finder 中右键应用并选择“打开”，确认一次后即可正常启动。应用只在本机启动一个动态端口的数据服务，不向局域网暴露。
+
+- 关闭窗口：应用留在后台，方便下次快速打开。
+- 完整退出：按 `Command-Q`。
+- 服务意外退出：应用会自动恢复；GitHub 暂时不可用时继续展示最近有效缓存。
+
+### 使用浏览器 Mini
+
+在插件目录运行：
+
+```bash
+python3 scripts/github_radar_ui.py
+```
+
+浏览器会自动打开 `http://127.0.0.1:8765`。页面包含双榜切换、语言与 Topic 筛选、今日关注、来源、服务状态和数据警告；项目卡片可直接打开公开 GitHub 仓库。筛选时会先在本地索引中即时展示匹配结果，再由并发 GitHub 扫描无闪烁更新；README 简介随后补齐。15 分钟内重复筛选直接读取本地报告缓存，“刷新榜单”仍会强制执行实时扫描。
+
+服务只监听本机地址，不上传报告、不暴露到局域网。停止时在终端按 `Control-C`。如果只想启动服务而不自动打开浏览器：
+
+```bash
+python3 scripts/github_radar_ui.py --no-open
+```
+
+### 从源码构建与打包 macOS 应用
+
+无需安装第三方打包工具：
+
+```bash
+zsh scripts/build_macos_app.sh
+open "dist/GitHub Radar.app"
+```
+
+生成当前机器架构的 DMG、ZIP 和 SHA-256 校验文件：
+
+```bash
+zsh scripts/package_macos_release.sh
+```
+
+生成的应用会以独立 macOS 窗口显示仪表盘，不会跳转到浏览器。构建产物使用临时本地签名；正式公证需要维护者自行配置 Apple Developer ID，项目不会收集或保存签名凭据。
+
+## 安装 Codex 插件
 
 需要 macOS 或 Linux、Python 3.10+，以及已经安装并登录的 [GitHub CLI](https://cli.github.com/)：
 
@@ -117,10 +166,13 @@ JSON 输出固定包含 `generated_at`、`scope`、`new_projects`、`fast_growth
 
 ```bash
 python3 -m py_compile scripts/github_radar.py
+python3 -m py_compile scripts/github_radar_ui.py
 python3 -m unittest discover -s scripts/tests -v
 ```
 
 测试覆盖 Search JSON 与 Trending HTML 解析、去重和过滤、首次基线、24 小时增量、API 部分失败、数据库损坏以及只读端点约束。GitHub Actions 会在每次提交和 Pull Request 上重复这些检查。
+
+参与开发前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## License
 

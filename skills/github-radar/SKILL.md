@@ -7,6 +7,8 @@ description: Generate read-only rankings of new and fast-growing public GitHub r
 
 Generate the requested report with the deterministic collector at `../../scripts/github_radar.py`.
 
+When the user explicitly asks to open the visual local Mini, run `python3 ../../scripts/github_radar_ui.py`. Explain that it opens a localhost dashboard and keeps running until stopped; do not launch it for ordinary report requests.
+
 ## Run the collector
 
 Use Python 3 and return the script's stdout as the report:
