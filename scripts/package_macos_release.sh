@@ -7,6 +7,7 @@ APP_PATH="$OUTPUT_DIR/GitHub Radar.app"
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLUGIN_ROOT/macos/Info.plist")
 ARCH=$(/usr/bin/uname -m)
 BASE_NAME="GitHub-Radar-${VERSION}-macOS-${ARCH}"
+/bin/mkdir -p "$OUTPUT_DIR"
 STAGING=$(/usr/bin/mktemp -d "$OUTPUT_DIR/release.XXXXXX")
 
 cleanup() {
